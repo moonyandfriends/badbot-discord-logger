@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved logging with both console and file output options
 
 ### Changed
+- **Environment variable names**: Changed to lowercase for consistency:
+  - `DISCORD_TOKEN` → `logger_discord_token`
+  - `SUPABASE_URL` → `supabase_url` 
+  - `SUPABASE_KEY` → `supabase_key`
 - **Simplified deployment stack**: Removed complex monitoring services for Railway deployment
 - **Updated README**: Focused on Railway deployment with simplified installation instructions
 - **Streamlined CLI tool**: Removed Docker-specific commands, added Railway-focused commands
