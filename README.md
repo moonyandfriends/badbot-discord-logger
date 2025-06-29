@@ -99,11 +99,11 @@ Set these in your Railway project or `.env` file:
 
 ```env
 # Discord Configuration
-DISCORD_TOKEN=your_discord_bot_token_here
+logger_discord_token=your_discord_bot_token_here
 
 # Supabase Configuration  
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_supabase_anon_key_here
+supabase_url=https://your-project.supabase.co
+supabase_key=your_supabase_anon_key_here
 ```
 
 ### Optional Configuration

@@ -7,11 +7,11 @@ services:
     restart: unless-stopped
     environment:
       # Discord Configuration
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - logger_discord_token=${logger_discord_token}
       
       # Supabase Configuration
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+      - supabase_url=${supabase_url}
+      - supabase_key=${supabase_key}
       
       # Logging Configuration
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

@@ -89,11 +89,11 @@ def setup(token: str, supabase_url: str, supabase_key: str, env_file: str):
     
     # Create environment file
     env_content = f"""# Discord Configuration
-DISCORD_TOKEN={token}
+logger_discord_token={token}
 
 # Supabase Configuration
-SUPABASE_URL={supabase_url}
-SUPABASE_KEY={supabase_key}
+supabase_url={supabase_url}
+supabase_key={supabase_key}
 
 # Logging Configuration
 LOG_LEVEL=INFO
@@ -128,9 +128,9 @@ PROCESS_DM_MESSAGES=false
         console.print("1. Create a new Railway project: railway new")
         console.print("2. Connect your GitHub repository")
         console.print("3. Add these environment variables in Railway dashboard:")
-        console.print("   - DISCORD_TOKEN")
-        console.print("   - SUPABASE_URL")
-        console.print("   - SUPABASE_KEY")
+        console.print("   - logger_discord_token")
+        console.print("   - supabase_url")
+        console.print("   - supabase_key")
         console.print("4. Deploy: railway up")
         console.print("\n[cyan]Test locally first with: python cli.py config test[/cyan]")
         
@@ -357,9 +357,9 @@ def railway():
     console.print("   railway up")
     
     console.print("\n[bold yellow]3. Set environment variables:[/bold yellow]")
-    console.print("   railway variables set DISCORD_TOKEN=your_token")
-    console.print("   railway variables set SUPABASE_URL=your_url")
-    console.print("   railway variables set SUPABASE_KEY=your_key")
+    console.print("   railway variables set logger_discord_token=your_token")
+    console.print("   railway variables set supabase_url=your_url")
+    console.print("   railway variables set supabase_key=your_key")
     
     console.print("\n[bold yellow]4. Monitor deployment:[/bold yellow]")
     console.print("   railway logs")

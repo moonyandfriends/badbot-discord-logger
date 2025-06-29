@@ -41,12 +41,12 @@ class Config(BaseSettings):
     )
     
     # Discord Bot Configuration
-    discord_token: str = Field(..., description="Discord bot token")
+    discord_token: str = Field(..., description="Discord bot token", alias="logger_discord_token")
     bot_prefix: str = Field("!", description="Bot command prefix")
     
     # Supabase Configuration
-    supabase_url: str = Field(..., description="Supabase project URL")
-    supabase_key: str = Field(..., description="Supabase anon key")
+    supabase_url: str = Field(..., description="Supabase project URL", alias="supabase_url")
+    supabase_key: str = Field(..., description="Supabase anon key", alias="supabase_key")
     supabase_service_role_key: Optional[str] = Field(None, description="Supabase service role key (for admin operations)")
     
     # Logging Configuration

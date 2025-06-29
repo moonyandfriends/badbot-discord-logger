@@ -277,9 +277,9 @@ class TestConfigLoading:
         reset_config()
     
     @patch.dict(os.environ, {
-        "DISCORD_TOKEN": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-        "SUPABASE_URL": "https://test-project.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "logger_discord_token": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "supabase_url": "https://test-project.supabase.co",
+        "supabase_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     })
     def test_load_config_from_env(self):
         """Test loading configuration from environment variables."""
@@ -315,9 +315,9 @@ class TestConfigLoading:
             load_config_with_overrides(**overrides)
     
     @patch.dict(os.environ, {
-        "DISCORD_TOKEN": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-        "SUPABASE_URL": "https://test-project.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "logger_discord_token": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "supabase_url": "https://test-project.supabase.co",
+        "supabase_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     })
     def test_get_config_singleton(self):
         """Test configuration singleton behavior."""
@@ -328,9 +328,9 @@ class TestConfigLoading:
         assert config1 is config2
     
     @patch.dict(os.environ, {
-        "DISCORD_TOKEN": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-        "SUPABASE_URL": "https://test-project.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "logger_discord_token": "OTk5OTk5OTk5OTk5OTk5OTk5.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "supabase_url": "https://test-project.supabase.co",
+        "supabase_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QtcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2MjQwMDB9.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     })
     def test_reload_config(self):
         """Test configuration reloading."""
