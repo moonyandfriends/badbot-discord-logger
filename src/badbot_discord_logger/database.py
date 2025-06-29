@@ -30,7 +30,7 @@ except ImportError:
 from .config import Config
 from .models import (
     MessageModel, ActionModel, CheckpointModel, 
-    GuildInfoModel, ChannelInfoModel, ActionType
+    GuildInfoModel, ChannelInfoModel, ActionType, MessageType
 )
 
 
@@ -190,10 +190,11 @@ class SupabaseManager:
         """
         try:
             message_model = self._convert_discord_message(message, is_backfilled)
+            message_dict = self._message_model_to_dict(message_model)
             
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["messages"]).upsert(
-                    message_model.model_dump(),
+                    message_dict,
                     on_conflict="message_id"
                 )
             
@@ -231,31 +232,32 @@ class SupabaseManager:
             return 0
         
         try:
-            message_models = []
+            message_dicts = []
             for msg in messages:
                 try:
                     model = self._convert_discord_message(msg, is_backfilled)
-                    message_models.append(model.model_dump())
+                    message_dict = self._message_model_to_dict(model)
+                    message_dicts.append(message_dict)
                 except Exception as e:
                     logger.warning(f"Failed to convert message {msg.id}: {e}")
                     continue
             
-            if not message_models:
+            if not message_dicts:
                 return 0
             
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["messages"]).upsert(
-                    message_models,
+                    message_dicts,
                     on_conflict="message_id"
                 )
             
             await self._execute_with_retry(
                 operation,
-                f"store_messages_batch_{len(message_models)}"
+                f"store_messages_batch_{len(message_dicts)}"
             )
             
-            logger.info(f"Stored batch of {len(message_models)} messages")
-            return len(message_models)
+            logger.info(f"Stored batch of {len(message_dicts)} messages")
+            return len(message_dicts)
             
         except Exception as e:
             logger.error(f"Failed to store message batch: {e}")
@@ -585,14 +587,14 @@ class SupabaseManager:
     
     def _convert_discord_message(self, message: discord.Message, is_backfilled: bool = False) -> MessageModel:
         """
-        Convert a Discord message to a MessageModel.
+        Convert a Discord message to a MessageModel for database storage.
         
         Args:
             message: Discord message object
-            is_backfilled: Whether this message is from backfill
+            is_backfilled: Whether this message is being backfilled
             
         Returns:
-            MessageModel object
+            MessageModel instance ready for database storage
         """
         # Handle attachments
         attachments = []
@@ -613,31 +615,40 @@ class SupabaseManager:
         embeds = []
         for embed in message.embeds:
             try:
+                # Safely convert embed attributes to dictionaries
                 embed_dict = {
                     "title": embed.title,
                     "description": embed.description,
                     "url": embed.url,
                     "color": embed.color.value if embed.color else None,
                     "timestamp": embed.timestamp.isoformat() if embed.timestamp else None,
-                    "footer": dict(embed.footer) if embed.footer else None,
-                    "image": dict(embed.image) if embed.image else None,
-                    "thumbnail": dict(embed.thumbnail) if embed.thumbnail else None,
-                    "video": dict(embed.video) if embed.video else None,
-                    "provider": dict(embed.provider) if embed.provider else None,
-                    "author": dict(embed.author) if embed.author else None,
-                    "fields": [dict(field) for field in embed.fields]
+                    "footer": self._safe_convert_embed_attr(embed.footer),
+                    "image": self._safe_convert_embed_attr(embed.image),
+                    "thumbnail": self._safe_convert_embed_attr(embed.thumbnail),
+                    "video": self._safe_convert_embed_attr(embed.video),
+                    "provider": self._safe_convert_embed_attr(embed.provider),
+                    "author": self._safe_convert_embed_attr(embed.author),
+                    "fields": [self._safe_convert_embed_attr(field) for field in embed.fields]
                 }
                 embeds.append(embed_dict)
             except Exception as e:
                 logger.warning(f"Failed to convert embed: {e}")
                 continue
         
+        # Convert message type string to MessageType enum
+        message_type_str = str(message.type).split('.')[-1].lower()
+        try:
+            message_type = MessageType(message_type_str)
+        except ValueError:
+            # Fallback to default if unknown message type
+            message_type = MessageType.DEFAULT
+        
         return MessageModel(
             message_id=str(message.id),
             channel_id=str(message.channel.id),
             guild_id=str(message.guild.id) if message.guild else None,
             content=message.content or "",  # Ensure content is never None
-            message_type=str(message.type).split('.')[-1].lower(),
+            message_type=message_type,
             author_id=str(message.author.id),
             author_username=message.author.name,
             author_display_name=message.author.display_name,
@@ -655,12 +666,48 @@ class SupabaseManager:
             mentions=[str(user.id) for user in message.mentions],
             mention_roles=[str(role.id) for role in message.role_mentions],
             mention_channels=[str(channel.id) for channel in message.channel_mentions],
-            thread_id=str(message.channel.id) if hasattr(message.channel, 'parent') and message.channel.parent else None,
+            thread_id=str(message.channel.id) if hasattr(message.channel, 'parent') and getattr(message.channel, 'parent', None) else None,
             reference_message_id=str(message.reference.message_id) if message.reference else None,
-            application_id=str(message.application_id) if message.application_id else None,
+            application_id=str(getattr(message, 'application_id', None)) if hasattr(message, 'application_id') else None,
             interaction_type=str(message.interaction.type) if message.interaction else None,
             is_backfilled=is_backfilled
         )
+    
+    def _safe_convert_embed_attr(self, attr) -> Optional[Dict[str, Any]]:
+        """
+        Safely convert an embed attribute to a dictionary.
+        
+        Args:
+            attr: The embed attribute to convert
+            
+        Returns:
+            Dictionary representation of the attribute or None if conversion fails
+        """
+        if attr is None:
+            return None
+        
+        try:
+            # Check if the attribute has a to_dict method
+            if hasattr(attr, 'to_dict') and callable(attr.to_dict):
+                return attr.to_dict()
+            
+            # Check if it's already a dict-like object
+            if hasattr(attr, '__dict__'):
+                return {k: v for k, v in attr.__dict__.items() if not k.startswith('_')}
+            
+            # Try to convert using dict() if it's a mapping
+            if hasattr(attr, 'items'):
+                return dict(attr)
+            
+            # If it's a simple object, try to get its attributes
+            if hasattr(attr, '__slots__'):
+                return {slot: getattr(attr, slot, None) for slot in attr.__slots__}
+            
+            # Fallback: return None if we can't convert it
+            return None
+            
+        except Exception:
+            return None
     
     @lru_cache(maxsize=128)
     def _get_cached_stats_key(self, stat_type: str) -> str:
@@ -798,4 +845,29 @@ class SupabaseManager:
             logger.info("Closing Supabase connection")
             # Supabase client doesn't need explicit closing
             self.client = None
-            self._initialized = False 
+            self._initialized = False
+    
+    def _message_model_to_dict(self, message_model: MessageModel) -> Dict[str, Any]:
+        """
+        Convert MessageModel to a JSON-serializable dictionary for database storage.
+        
+        Args:
+            message_model: The MessageModel to convert
+            
+        Returns:
+            Dictionary with datetime objects converted to ISO format strings
+        """
+        data = message_model.model_dump()
+        
+        # Convert datetime objects to ISO format strings
+        if data.get('created_at'):
+            data['created_at'] = data['created_at'].isoformat()
+        if data.get('edited_at'):
+            data['edited_at'] = data['edited_at'].isoformat()
+        if data.get('logged_at'):
+            data['logged_at'] = data['logged_at'].isoformat()
+        
+        # Convert enum values to strings
+        data['message_type'] = data['message_type'].value
+        
+        return data 
