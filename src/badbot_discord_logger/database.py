@@ -319,9 +319,11 @@ class SupabaseManager:
                 is_backfilled=is_backfilled
             )
             
+            action_dict = self._action_model_to_dict(action_model)
+            
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["actions"]).insert(
-                    action_model.model_dump()
+                    action_dict
                 )
             
             await self._execute_with_retry(
@@ -378,7 +380,10 @@ class SupabaseManager:
             )
             
             if result.data:
-                return CheckpointModel(**result.data[0])
+                # Remove the 'id' field from the database result as it's not part of our model
+                checkpoint_data = result.data[0].copy()
+                checkpoint_data.pop('id', None)  # Remove the database-generated id field
+                return CheckpointModel(**checkpoint_data)
             return None
             
         except Exception as e:
@@ -941,5 +946,28 @@ class SupabaseManager:
             data['created_at'] = data['created_at'].isoformat()
         if data.get('updated_at'):
             data['updated_at'] = data['updated_at'].isoformat()
+        
+        return data
+    
+    def _action_model_to_dict(self, action_model: ActionModel) -> Dict[str, Any]:
+        """
+        Convert ActionModel to a JSON-serializable dictionary for database storage.
+        
+        Args:
+            action_model: The ActionModel to convert
+            
+        Returns:
+            Dictionary with datetime objects converted to ISO format strings
+        """
+        data = action_model.model_dump()
+        
+        # Convert datetime objects to ISO format strings
+        if data.get('occurred_at'):
+            data['occurred_at'] = data['occurred_at'].isoformat()
+        if data.get('logged_at'):
+            data['logged_at'] = data['logged_at'].isoformat()
+        
+        # Convert enum values to strings
+        data['action_type'] = data['action_type'].value
         
         return data 
