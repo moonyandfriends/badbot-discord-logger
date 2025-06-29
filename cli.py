@@ -2,19 +2,16 @@
 """
 Discord Logger Bot CLI Tool
 
-A comprehensive command-line interface for managing the Discord Logger Bot.
-Provides commands for setup, monitoring, maintenance, and troubleshooting.
+A command-line interface for managing the Discord Logger Bot on Railway.
+Provides commands for setup, monitoring, and maintenance.
 """
 
 import asyncio
 import json
 import sys
 import os
-import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-import argparse
+from typing import Dict, Any
 
 import click
 try:
@@ -22,8 +19,6 @@ try:
     from rich.console import Console
     from rich.table import Table
     from rich.progress import Progress, SpinnerColumn, TextColumn
-    from rich.panel import Panel
-    from rich.text import Text
 except ImportError:
     print("Missing required dependencies. Install with: pip install click aiohttp rich")
     sys.exit(1)
@@ -34,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 try:
     from badbot_discord_logger.config import load_config_with_overrides, get_config
     from badbot_discord_logger.database import SupabaseManager
-    from badbot_discord_logger.models import ActionType
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print("Make sure you've installed the dependencies with: pip install -r requirements.txt")
@@ -70,7 +64,7 @@ cli = DiscordLoggerCLI()
 @click.group()
 @click.version_option(version="1.0.0")
 def main():
-    """Discord Logger Bot Management CLI"""
+    """Discord Logger Bot Management CLI for Railway"""
     pass
 
 
@@ -81,9 +75,9 @@ def main():
 @click.option('--supabase-key', prompt='Supabase Key', help='Supabase anon key', hide_input=True)
 @click.option('--env-file', default='.env', help='Environment file path')
 def setup(token: str, app_id: str, supabase_url: str, supabase_key: str, env_file: str):
-    """Set up the Discord Logger Bot configuration."""
+    """Set up the Discord Logger Bot configuration for Railway."""
     
-    console.print("[bold blue]Setting up Discord Logger Bot...[/bold blue]")
+    console.print("[bold blue]Setting up Discord Logger Bot for Railway...[/bold blue]")
     
     # Validate inputs
     if len(token) < 50:
@@ -111,6 +105,7 @@ ENABLE_DEBUG=false
 BACKFILL_ENABLED=true
 BACKFILL_CHUNK_SIZE=100
 BACKFILL_DELAY_SECONDS=1.0
+BACKFILL_ON_STARTUP=false
 
 # Performance Configuration
 BATCH_SIZE=50
@@ -119,11 +114,11 @@ FLUSH_INTERVAL=30
 
 # Health Check Configuration
 HEALTH_CHECK_ENABLED=true
-HEALTH_CHECK_PORT=8080
 
-# Metrics Configuration
-METRICS_ENABLED=false
-METRICS_PORT=9090
+# Message Processing Configuration
+PROCESS_BOT_MESSAGES=true
+PROCESS_SYSTEM_MESSAGES=true
+PROCESS_DM_MESSAGES=false
 """
     
     try:
@@ -131,10 +126,16 @@ METRICS_PORT=9090
             f.write(env_content)
         
         console.print(f"[green]✓ Configuration saved to {env_file}[/green]")
-        console.print("[yellow]Next steps:[/yellow]")
-        console.print("1. Set up your Supabase database schema with: python cli.py db setup")
-        console.print("2. Test the configuration with: python cli.py config test")
-        console.print("3. Start the bot with: python main.py")
+        console.print("\n[bold yellow]Railway Deployment Steps:[/bold yellow]")
+        console.print("1. Create a new Railway project: railway new")
+        console.print("2. Connect your GitHub repository")
+        console.print("3. Add these environment variables in Railway dashboard:")
+        console.print("   - DISCORD_TOKEN")
+        console.print("   - DISCORD_APPLICATION_ID") 
+        console.print("   - SUPABASE_URL")
+        console.print("   - SUPABASE_KEY")
+        console.print("4. Deploy: railway up")
+        console.print("\n[cyan]Test locally first with: python cli.py config test[/cyan]")
         
     except Exception as e:
         console.print(f"[red]Error writing configuration file: {e}[/red]")
@@ -147,8 +148,7 @@ def config():
 
 
 @config.command()
-@click.option('--env-file', default='.env', help='Environment file to test')
-def test(env_file: str):
+def test():
     """Test the configuration and connections."""
     
     async def _test_config():
@@ -169,13 +169,17 @@ def test(env_file: str):
             # Test database connection
             task2 = progress.add_task("Testing database connection...", total=None)
             try:
-                await cli.db_manager.initialize()
-                health = await cli.db_manager.health_check()
-                if health["database_connected"]:
-                    progress.update(task2, description="✓ Database connected")
+                if cli.db_manager:
+                    await cli.db_manager.initialize()
+                    health = await cli.db_manager.health_check()
+                    if health["database_connected"]:
+                        progress.update(task2, description="✓ Database connected")
+                    else:
+                        progress.update(task2, description="✗ Database connection failed")
+                        console.print(f"[red]Database error: {health.get('error', 'Unknown error')}[/red]")
+                        return
                 else:
-                    progress.update(task2, description="✗ Database connection failed")
-                    console.print(f"[red]Database error: {health.get('error', 'Unknown error')}[/red]")
+                    progress.update(task2, description="✗ Database manager not initialized")
                     return
             except Exception as e:
                 progress.update(task2, description="✗ Database connection failed")
@@ -184,7 +188,7 @@ def test(env_file: str):
             
             # Test Discord configuration
             task3 = progress.add_task("Validating Discord configuration...", total=None)
-            if cli.config.discord_token and len(cli.config.discord_token) > 50:
+            if cli.config and cli.config.discord_token and len(cli.config.discord_token) > 50:
                 progress.update(task3, description="✓ Discord token valid")
             else:
                 progress.update(task3, description="✗ Discord token invalid")
@@ -194,17 +198,18 @@ def test(env_file: str):
         console.print("\n[bold green]✓ All tests passed! Configuration is valid.[/bold green]")
         
         # Display configuration summary
-        table = Table(title="Configuration Summary")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="magenta")
-        
-        table.add_row("Log Level", cli.config.log_level)
-        table.add_row("Backfill Enabled", str(cli.config.backfill_enabled))
-        table.add_row("Batch Size", str(cli.config.batch_size))
-        table.add_row("Health Check Port", str(cli.config.health_check_port))
-        table.add_row("Production Mode", str(cli.config.is_production))
-        
-        console.print(table)
+        if cli.config:
+            table = Table(title="Configuration Summary")
+            table.add_column("Setting", style="cyan")
+            table.add_column("Value", style="magenta")
+            
+            table.add_row("Log Level", cli.config.log_level)
+            table.add_row("Backfill Enabled", str(cli.config.backfill_enabled))
+            table.add_row("Batch Size", str(cli.config.batch_size))
+            table.add_row("Health Check Enabled", str(cli.config.health_check_enabled))
+            table.add_row("Production Mode", str(cli.config.is_production))
+            
+            console.print(table)
     
     asyncio.run(_test_config())
 
@@ -224,22 +229,69 @@ def stats():
             return
         
         try:
-            await cli.db_manager.initialize()
-            stats = await cli.db_manager.get_statistics()
-            
-            table = Table(title="Database Statistics")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="magenta")
-            
-            table.add_row("Total Messages", f"{stats.get('total_messages', 0):,}")
-            table.add_row("Total Actions", f"{stats.get('total_actions', 0):,}")
-            table.add_row("Total Guilds", f"{stats.get('total_guilds', 0):,}")
-            
-            console.print(table)
+            if cli.db_manager:
+                await cli.db_manager.initialize()
+                stats = await cli.db_manager.get_statistics()
+                
+                table = Table(title="Database Statistics")
+                table.add_column("Metric", style="cyan")
+                table.add_column("Value", style="magenta")
+                
+                table.add_row("Total Messages", f"{stats.get('total_messages', 0):,}")
+                table.add_row("Total Actions", f"{stats.get('total_actions', 0):,}")
+                table.add_row("Total Guilds", f"{stats.get('total_guilds', 0):,}")
+                
+                console.print(table)
+            else:
+                console.print("[red]Database manager not initialized[/red]")
         except Exception as e:
             console.print(f"[red]Failed to get database statistics: {e}[/red]")
     
     asyncio.run(_show_stats())
+
+
+@db.command()
+def health():
+    """Check database health."""
+    
+    async def _check_health():
+        if not await cli.load_config():
+            return
+        
+        try:
+            if cli.db_manager:
+                await cli.db_manager.initialize()
+                health = await cli.db_manager.health_check()
+                
+                table = Table(title="Database Health Check")
+                table.add_column("Check", style="cyan")
+                table.add_column("Status", style="magenta")
+                table.add_column("Details", style="dim")
+                
+                # Database connection
+                status = "✓ Healthy" if health["database_connected"] else "✗ Failed"
+                table.add_row("Database Connection", status, "")
+                
+                # Table access
+                status = "✓ Accessible" if health["tables_accessible"] else "✗ Failed"
+                table.add_row("Table Access", status, "")
+                
+                # Last message timestamp
+                if health["last_message_timestamp"]:
+                    table.add_row("Last Message", "✓ Available", health["last_message_timestamp"])
+                else:
+                    table.add_row("Last Message", "No messages", "")
+                
+                console.print(table)
+                
+                if health.get("error"):
+                    console.print(f"\n[red]Error: {health['error']}[/red]")
+            else:
+                console.print("[red]Database manager not initialized[/red]")
+        except Exception as e:
+            console.print(f"[red]Health check failed: {e}[/red]")
+    
+    asyncio.run(_check_health())
 
 
 @main.group()
@@ -249,15 +301,24 @@ def bot():
 
 
 @bot.command()
-@click.option('--host', default='localhost', help='Bot health check host')
-@click.option('--port', default=8080, help='Bot health check port')
-def status(host: str, port: int):
+@click.option('--url', help='Bot health check URL (Railway deployment URL)')
+def status(url: str):
     """Check bot status via health check endpoint."""
     
     async def _check_status():
+        # Try to determine URL automatically or use provided one
+        check_url = url
+        if not check_url:
+            # Check for Railway environment
+            railway_url = os.environ.get('RAILWAY_STATIC_URL')
+            if railway_url:
+                check_url = f"https://{railway_url}/health"
+            else:
+                check_url = "http://localhost:8080/health"
+        
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f'http://{host}:{port}/health', timeout=10) as response:
+                async with session.get(check_url, timeout=10) as response:
                     if response.status == 200:
                         data = await response.json()
                         console.print("[bold green]✓ Bot is running[/bold green]")
@@ -276,27 +337,69 @@ def status(host: str, port: int):
                         console.print(f"[red]✗ Bot health check failed (HTTP {response.status})[/red]")
         except Exception as e:
             console.print(f"[red]✗ Bot is not responding: {e}[/red]")
-            console.print("[yellow]Make sure the bot is running and health checks are enabled[/yellow]")
+            console.print("[yellow]Make sure the bot is running and accessible[/yellow]")
+            if not url:
+                console.print("[cyan]Try specifying the URL with --url option[/cyan]")
     
     asyncio.run(_check_status())
+
+
+@main.command()
+def railway():
+    """Show Railway deployment information."""
+    
+    console.print("[bold blue]Railway Deployment Guide[/bold blue]\n")
+    
+    console.print("[bold yellow]1. Setup Railway CLI:[/bold yellow]")
+    console.print("   npm install -g @railway/cli")
+    console.print("   railway login")
+    
+    console.print("\n[bold yellow]2. Create and deploy:[/bold yellow]")
+    console.print("   railway new")
+    console.print("   railway link")
+    console.print("   railway up")
+    
+    console.print("\n[bold yellow]3. Set environment variables:[/bold yellow]")
+    console.print("   railway variables set DISCORD_TOKEN=your_token")
+    console.print("   railway variables set SUPABASE_URL=your_url")
+    console.print("   railway variables set SUPABASE_KEY=your_key")
+    
+    console.print("\n[bold yellow]4. Monitor deployment:[/bold yellow]")
+    console.print("   railway logs")
+    console.print("   railway status")
+    
+    console.print("\n[bold cyan]Useful Commands:[/bold cyan]")
+    commands = [
+        ("Check bot status", "python cli.py bot status --url https://your-app.railway.app"),
+        ("View database stats", "python cli.py db stats"),
+        ("Test config locally", "python cli.py config test"),
+    ]
+    
+    for description, command in commands:
+        console.print(f"  {description}: [dim]{command}[/dim]")
 
 
 @main.command()
 def docs():
     """Show documentation and helpful information."""
     
-    console.print("[bold blue]Discord Logger Bot Documentation & Links[/bold blue]\n")
+    console.print("[bold blue]Discord Logger Bot - Railway Edition[/bold blue]\n")
     
-    console.print(f"[bold yellow]Common Commands:[/bold yellow]")
-    commands = [
-        ("Setup configuration", "python cli.py setup"),
-        ("Test configuration", "python cli.py config test"),
-        ("Check bot status", "python cli.py bot status"),
-        ("View database stats", "python cli.py db stats"),
-    ]
+    console.print("[bold yellow]Quick Start:[/bold yellow]")
+    console.print("1. python cli.py setup")
+    console.print("2. python cli.py config test") 
+    console.print("3. python cli.py railway")
+    console.print("4. Deploy to Railway")
     
-    for description, command in commands:
-        console.print(f"  {description}: [cyan]{command}[/cyan]")
+    console.print("\n[bold yellow]Helpful Links:[/bold yellow]")
+    console.print("• Discord Developer Portal: https://discord.com/developers/applications")
+    console.print("• Supabase Dashboard: https://app.supabase.com")
+    console.print("• Railway Dashboard: https://railway.app")
+    
+    console.print("\n[bold yellow]Support:[/bold yellow]")
+    console.print("• Check logs: railway logs")
+    console.print("• Monitor status: python cli.py bot status")
+    console.print("• Database health: python cli.py db health")
 
 
 if __name__ == "__main__":

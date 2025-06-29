@@ -8,6 +8,7 @@ message logging, action tracking, and backfill capabilities with checkpoint mana
 import asyncio
 import signal
 import sys
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 from collections import deque
@@ -709,16 +710,30 @@ class DiscordLogger(commands.Bot):
                 stats_data = await self.get_stats()
                 return web.json_response(stats_data)
             
+            async def root_handler(request):
+                """Root endpoint handler."""
+                return web.json_response({
+                    "name": "Discord Logger Bot",
+                    "status": "running",
+                    "endpoints": {
+                        "health": "/health",
+                        "stats": "/stats"
+                    }
+                })
+            
+            self.health_app.router.add_get('/', root_handler)
             self.health_app.router.add_get('/health', health_handler)
             self.health_app.router.add_get('/stats', stats_handler)
             
             runner = web.AppRunner(self.health_app)
             await runner.setup()
             
-            site = web.TCPSite(runner, '0.0.0.0', self.config.health_check_port)
+            # Use Railway's PORT environment variable or fallback to config
+            port = int(os.environ.get('PORT', self.config.health_check_port))
+            site = web.TCPSite(runner, '0.0.0.0', port)
             await site.start()
             
-            logger.info(f"Health check server started on port {self.config.health_check_port}")
+            logger.info(f"Health check server started on port {port}")
             
         except Exception as e:
             logger.error(f"Failed to start health check server: {e}")

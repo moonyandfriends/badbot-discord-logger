@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Railway deployment optimization**: Configured for one-click Railway deployment
+- **Simplified Docker configuration**: Lightweight single-stage Dockerfile for Railway
+- **Railway-specific environment template**: `env.railway` file with Railway environment variables
+- **Railway CLI commands**: Added Railway-specific deployment and monitoring commands
+- **PORT environment variable support**: Automatic detection of Railway's PORT environment variable
+- **Root endpoint (`/`)**: Basic bot information endpoint for Railway health checks
 - **Comprehensive testing infrastructure**: Added unit tests for configuration module with 100% coverage
-- **Docker support**: Full Docker and Docker Compose setup with multi-service stack including monitoring
 - **CLI management tool**: Feature-rich command-line interface for setup, monitoring, and maintenance
 - **Health check server**: HTTP endpoints for health monitoring and statistics at `/health` and `/stats`
 - **Memory management**: Automatic memory cleanup and garbage collection to prevent memory leaks
@@ -17,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance optimizations**: Database caching, connection pooling, and batch operation improvements
 - **Additional Discord events**: Voice state updates, channel operations, member updates
 - **Statistics collection**: Real-time bot performance metrics and database statistics
-- **Production monitoring**: Prometheus, Grafana, and Loki integration for comprehensive observability
 
 ### Enhanced
 - **Database module**: Added retry logic, connection management, health checks, and data cleanup utilities
@@ -40,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved logging with both console and file output options
 
 ### Changed
+- **Simplified deployment stack**: Removed complex monitoring services for Railway deployment
+- **Updated README**: Focused on Railway deployment with simplified installation instructions
+- **Streamlined CLI tool**: Removed Docker-specific commands, added Railway-focused commands
+- **Simplified docker-compose.yml**: Single service configuration without monitoring stack
 - Upgraded configuration system to use pydantic-settings with proper BaseSettings
 - Improved database operations to use upsert instead of insert for idempotency
 - Enhanced message conversion with better error handling for individual message failures
@@ -59,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Missing imports and dependency management
 - Message content null handling
 - Proper async context management
+
+### Removed
+- **Multi-service Docker stack**: Removed Redis, Loki, Grafana, Prometheus, and Nginx services
+- **Complex monitoring configuration**: Simplified to focus on Railway's built-in monitoring
+- **Multi-stage Dockerfile**: Replaced with single-stage lightweight Dockerfile
+- **Docker-specific CLI commands**: Removed in favor of Railway-focused commands
 
 ### Security
 - Added validation for Discord tokens and Supabase credentials
