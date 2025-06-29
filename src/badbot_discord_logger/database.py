@@ -450,9 +450,11 @@ class SupabaseManager:
                     backfill_in_progress=backfill_in_progress or False
                 )
                 
+                checkpoint_dict = self._checkpoint_model_to_dict(checkpoint_model)
+                
                 def operation(client: Client) -> Any:
                     return client.table(self.table_names["checkpoints"]).upsert(
-                        checkpoint_model.model_dump(),
+                        checkpoint_dict,
                         on_conflict="checkpoint_id"
                     )
             
@@ -528,9 +530,11 @@ class SupabaseManager:
                 banner_url=str(guild.banner.url) if guild.banner else None
             )
             
+            guild_dict = self._guild_info_model_to_dict(guild_model)
+            
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["guilds"]).upsert(
-                    guild_model.model_dump(),
+                    guild_dict,
                     on_conflict="guild_id"
                 )
             
@@ -567,9 +571,11 @@ class SupabaseManager:
                 category_id=str(channel.category.id) if getattr(channel, 'category', None) and channel.category else None
             )
             
+            channel_dict = self._channel_info_model_to_dict(channel_model)
+            
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["channels"]).upsert(
-                    channel_model.model_dump(),
+                    channel_dict,
                     on_conflict="channel_id"
                 )
             
@@ -869,5 +875,71 @@ class SupabaseManager:
         
         # Convert enum values to strings
         data['message_type'] = data['message_type'].value
+        
+        return data
+    
+    def _channel_info_model_to_dict(self, channel_model: ChannelInfoModel) -> Dict[str, Any]:
+        """
+        Convert ChannelInfoModel to a JSON-serializable dictionary for database storage.
+        
+        Args:
+            channel_model: The ChannelInfoModel to convert
+            
+        Returns:
+            Dictionary with datetime objects converted to ISO format strings
+        """
+        data = channel_model.model_dump()
+        
+        # Convert datetime objects to ISO format strings
+        if data.get('first_seen'):
+            data['first_seen'] = data['first_seen'].isoformat()
+        if data.get('last_updated'):
+            data['last_updated'] = data['last_updated'].isoformat()
+        
+        return data
+    
+    def _guild_info_model_to_dict(self, guild_model: GuildInfoModel) -> Dict[str, Any]:
+        """
+        Convert GuildInfoModel to a JSON-serializable dictionary for database storage.
+        
+        Args:
+            guild_model: The GuildInfoModel to convert
+            
+        Returns:
+            Dictionary with datetime objects converted to ISO format strings
+        """
+        data = guild_model.model_dump()
+        
+        # Convert datetime objects to ISO format strings
+        if data.get('created_at'):
+            data['created_at'] = data['created_at'].isoformat()
+        if data.get('first_seen'):
+            data['first_seen'] = data['first_seen'].isoformat()
+        if data.get('last_updated'):
+            data['last_updated'] = data['last_updated'].isoformat()
+        
+        return data
+    
+    def _checkpoint_model_to_dict(self, checkpoint_model: CheckpointModel) -> Dict[str, Any]:
+        """
+        Convert CheckpointModel to a JSON-serializable dictionary for database storage.
+        
+        Args:
+            checkpoint_model: The CheckpointModel to convert
+            
+        Returns:
+            Dictionary with datetime objects converted to ISO format strings
+        """
+        data = checkpoint_model.model_dump()
+        
+        # Convert datetime objects to ISO format strings
+        if data.get('last_processed_timestamp'):
+            data['last_processed_timestamp'] = data['last_processed_timestamp'].isoformat()
+        if data.get('last_backfill_completed'):
+            data['last_backfill_completed'] = data['last_backfill_completed'].isoformat()
+        if data.get('created_at'):
+            data['created_at'] = data['created_at'].isoformat()
+        if data.get('updated_at'):
+            data['updated_at'] = data['updated_at'].isoformat()
         
         return data 
