@@ -192,6 +192,16 @@ class SupabaseManager:
             message_model = self._convert_discord_message(message, is_backfilled)
             message_dict = self._message_model_to_dict(message_model)
             
+            # Debug: Check if the dict is JSON serializable
+            try:
+                import json
+                json.dumps(message_dict)
+                logger.debug(f"Message dict is JSON serializable for message {message.id}")
+            except Exception as json_error:
+                logger.error(f"Message dict is NOT JSON serializable for message {message.id}: {json_error}")
+                logger.error(f"Problematic fields: {[(k, type(v)) for k, v in message_dict.items() if not isinstance(v, (str, int, float, bool, type(None), list, dict))]}")
+                raise
+            
             def operation(client: Client) -> Any:
                 return client.table(self.table_names["messages"]).upsert(
                     message_dict,
@@ -868,20 +878,68 @@ class SupabaseManager:
         Returns:
             Dictionary with datetime objects converted to ISO format strings
         """
-        data = message_model.model_dump()
-        
-        # Convert datetime objects to ISO format strings
-        if data.get('created_at'):
-            data['created_at'] = data['created_at'].isoformat()
-        if data.get('edited_at'):
-            data['edited_at'] = data['edited_at'].isoformat()
-        if data.get('logged_at'):
-            data['logged_at'] = data['logged_at'].isoformat()
-        
-        # Convert enum values to strings
-        data['message_type'] = data['message_type'].value
-        
-        return data
+        try:
+            data = message_model.model_dump()
+            
+            # Convert datetime objects to ISO format strings
+            if data.get('created_at') and hasattr(data['created_at'], 'isoformat'):
+                data['created_at'] = data['created_at'].isoformat()
+            elif data.get('created_at'):
+                # If it's already a string, leave it as is
+                pass
+            else:
+                data['created_at'] = None
+                
+            if data.get('edited_at') and hasattr(data['edited_at'], 'isoformat'):
+                data['edited_at'] = data['edited_at'].isoformat()
+            elif data.get('edited_at'):
+                # If it's already a string, leave it as is
+                pass
+            else:
+                data['edited_at'] = None
+                
+            if data.get('logged_at') and hasattr(data['logged_at'], 'isoformat'):
+                data['logged_at'] = data['logged_at'].isoformat()
+            elif data.get('logged_at'):
+                # If it's already a string, leave it as is
+                pass
+            else:
+                data['logged_at'] = None
+            
+            # Convert enum values to strings
+            if hasattr(data.get('message_type'), 'value'):
+                data['message_type'] = data['message_type'].value
+            elif isinstance(data.get('message_type'), str):
+                # If it's already a string, leave it as is
+                pass
+            else:
+                data['message_type'] = 'default'
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error converting MessageModel to dict: {e}")
+            # Fallback: try to convert with basic string conversion
+            try:
+                data = message_model.model_dump()
+                # Force convert all datetime fields to strings
+                for key in ['created_at', 'edited_at', 'logged_at']:
+                    if data.get(key):
+                        if hasattr(data[key], 'isoformat'):
+                            data[key] = data[key].isoformat()
+                        else:
+                            data[key] = str(data[key])
+                
+                # Force convert enum
+                if hasattr(data.get('message_type'), 'value'):
+                    data['message_type'] = data['message_type'].value
+                else:
+                    data['message_type'] = 'default'
+                
+                return data
+            except Exception as fallback_error:
+                logger.error(f"Fallback conversion also failed: {fallback_error}")
+                raise
     
     def _channel_info_model_to_dict(self, channel_model: ChannelInfoModel) -> Dict[str, Any]:
         """
