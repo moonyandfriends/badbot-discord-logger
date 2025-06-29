@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS discord_guilds (
     -- Metadata
     first_seen TIMESTAMPTZ DEFAULT NOW(),
     last_updated TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     
     CONSTRAINT discord_guilds_guild_id_key UNIQUE (guild_id)
 );
@@ -152,6 +153,7 @@ CREATE TABLE IF NOT EXISTS discord_guilds (
 CREATE INDEX IF NOT EXISTS idx_discord_guilds_guild_id ON discord_guilds (guild_id);
 CREATE INDEX IF NOT EXISTS idx_discord_guilds_owner_id ON discord_guilds (owner_id);
 CREATE INDEX IF NOT EXISTS idx_discord_guilds_last_updated ON discord_guilds (last_updated);
+CREATE INDEX IF NOT EXISTS idx_discord_guilds_updated_at ON discord_guilds (updated_at);
 
 -- Table for storing Discord channel information
 CREATE TABLE IF NOT EXISTS discord_channels (
@@ -167,6 +169,7 @@ CREATE TABLE IF NOT EXISTS discord_channels (
     -- Metadata
     first_seen TIMESTAMPTZ DEFAULT NOW(),
     last_updated TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     
     CONSTRAINT discord_channels_channel_id_key UNIQUE (channel_id)
 );
@@ -176,6 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_discord_channels_channel_id ON discord_channels (
 CREATE INDEX IF NOT EXISTS idx_discord_channels_guild_id ON discord_channels (guild_id);
 CREATE INDEX IF NOT EXISTS idx_discord_channels_channel_type ON discord_channels (channel_type);
 CREATE INDEX IF NOT EXISTS idx_discord_channels_last_updated ON discord_channels (last_updated);
+CREATE INDEX IF NOT EXISTS idx_discord_channels_updated_at ON discord_channels (updated_at);
 
 -- Function to automatically update the updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
