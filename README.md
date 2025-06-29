@@ -35,10 +35,9 @@ python cli.py setup
 ```
 
 This will prompt you for:
-- Discord bot token (required)
-- Discord application ID (optional, not currently used)
-- Supabase URL (required)
-- Supabase key (required)
+- Discord bot token
+- Supabase URL
+- Supabase key
 
 ### 2. Test Configuration
 
@@ -105,9 +104,6 @@ DISCORD_TOKEN=your_discord_bot_token_here
 # Supabase Configuration  
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_key_here
-
-# Optional Discord Configuration (not currently used)
-# DISCORD_APPLICATION_ID=your_application_id_here
 ```
 
 ### Optional Configuration
