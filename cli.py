@@ -70,7 +70,7 @@ def main():
 
 @main.command()
 @click.option('--token', prompt='Discord Bot Token', help='Discord bot token', hide_input=True)
-@click.option('--app-id', prompt='Discord Application ID', help='Discord application ID')
+@click.option('--app-id', prompt='Discord Application ID (optional)', help='Discord application ID (optional)', default='')
 @click.option('--supabase-url', prompt='Supabase URL', help='Supabase project URL')
 @click.option('--supabase-key', prompt='Supabase Key', help='Supabase anon key', hide_input=True)
 @click.option('--env-file', default='.env', help='Environment file path')
@@ -90,8 +90,13 @@ def setup(token: str, app_id: str, supabase_url: str, supabase_key: str, env_fil
     
     # Create environment file
     env_content = f"""# Discord Configuration
-DISCORD_TOKEN={token}
-DISCORD_APPLICATION_ID={app_id}
+DISCORD_TOKEN={token}"""
+    
+    if app_id:
+        env_content += f"""
+DISCORD_APPLICATION_ID={app_id}"""
+    
+    env_content += f"""
 
 # Supabase Configuration
 SUPABASE_URL={supabase_url}
@@ -130,10 +135,10 @@ PROCESS_DM_MESSAGES=false
         console.print("1. Create a new Railway project: railway new")
         console.print("2. Connect your GitHub repository")
         console.print("3. Add these environment variables in Railway dashboard:")
-        console.print("   - DISCORD_TOKEN")
-        console.print("   - DISCORD_APPLICATION_ID") 
-        console.print("   - SUPABASE_URL")
-        console.print("   - SUPABASE_KEY")
+        console.print("   - DISCORD_TOKEN (required)")
+        console.print("   - SUPABASE_URL (required)")
+        console.print("   - SUPABASE_KEY (required)")
+        console.print("   - DISCORD_APPLICATION_ID (optional)")
         console.print("4. Deploy: railway up")
         console.print("\n[cyan]Test locally first with: python cli.py config test[/cyan]")
         

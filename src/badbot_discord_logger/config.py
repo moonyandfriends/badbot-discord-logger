@@ -42,7 +42,7 @@ class Config(BaseSettings):
     
     # Discord Bot Configuration
     discord_token: str = Field(..., description="Discord bot token")
-    discord_application_id: Optional[str] = Field(None, description="Discord application ID")
+    discord_application_id: Optional[str] = Field(None, description="Discord application ID (optional, not currently used)")
     bot_prefix: str = Field("!", description="Bot command prefix")
     
     # Supabase Configuration
