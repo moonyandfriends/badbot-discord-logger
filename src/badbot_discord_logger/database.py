@@ -881,65 +881,52 @@ class SupabaseManager:
         try:
             data = message_model.model_dump()
             
-            # Convert datetime objects to ISO format strings
-            if data.get('created_at') and hasattr(data['created_at'], 'isoformat'):
-                data['created_at'] = data['created_at'].isoformat()
-            elif data.get('created_at'):
-                # If it's already a string, leave it as is
-                pass
-            else:
-                data['created_at'] = None
-                
-            if data.get('edited_at') and hasattr(data['edited_at'], 'isoformat'):
-                data['edited_at'] = data['edited_at'].isoformat()
-            elif data.get('edited_at'):
-                # If it's already a string, leave it as is
-                pass
-            else:
-                data['edited_at'] = None
-                
-            if data.get('logged_at') and hasattr(data['logged_at'], 'isoformat'):
-                data['logged_at'] = data['logged_at'].isoformat()
-            elif data.get('logged_at'):
-                # If it's already a string, leave it as is
-                pass
-            else:
-                data['logged_at'] = None
+            # Debug: Log the original data types
+            logger.debug(f"Original data types: {[(k, type(v)) for k, v in data.items()]}")
+            
+            # Recursively convert all datetime objects to strings
+            data = self._convert_datetime_recursive(data)
             
             # Convert enum values to strings
-            if hasattr(data.get('message_type'), 'value'):
-                data['message_type'] = data['message_type'].value
-            elif isinstance(data.get('message_type'), str):
-                # If it's already a string, leave it as is
-                pass
-            else:
-                data['message_type'] = 'default'
+            if 'message_type' in data:
+                if hasattr(data['message_type'], 'value'):
+                    data['message_type'] = data['message_type'].value
+                    logger.debug(f"Converted message_type enum to string: {data['message_type']}")
+                elif isinstance(data['message_type'], str):
+                    logger.debug(f"message_type is already a string: {data['message_type']}")
+                else:
+                    data['message_type'] = 'default'
+                    logger.debug(f"Set message_type to default: {data['message_type']}")
+            
+            # Debug: Log the final data types
+            logger.debug(f"Final data types: {[(k, type(v)) for k, v in data.items()]}")
             
             return data
             
         except Exception as e:
             logger.error(f"Error converting MessageModel to dict: {e}")
-            # Fallback: try to convert with basic string conversion
-            try:
-                data = message_model.model_dump()
-                # Force convert all datetime fields to strings
-                for key in ['created_at', 'edited_at', 'logged_at']:
-                    if data.get(key):
-                        if hasattr(data[key], 'isoformat'):
-                            data[key] = data[key].isoformat()
-                        else:
-                            data[key] = str(data[key])
-                
-                # Force convert enum
-                if hasattr(data.get('message_type'), 'value'):
-                    data['message_type'] = data['message_type'].value
-                else:
-                    data['message_type'] = 'default'
-                
-                return data
-            except Exception as fallback_error:
-                logger.error(f"Fallback conversion also failed: {fallback_error}")
-                raise
+            raise
+    
+    def _convert_datetime_recursive(self, obj: Any) -> Any:
+        """
+        Recursively convert datetime objects to ISO format strings.
+        
+        Args:
+            obj: The object to convert (can be dict, list, or any other type)
+            
+        Returns:
+            The object with all datetime objects converted to strings
+        """
+        if isinstance(obj, dict):
+            return {k: self._convert_datetime_recursive(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_datetime_recursive(item) for item in obj]
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif hasattr(obj, 'isoformat') and callable(getattr(obj, 'isoformat')):
+            return obj.isoformat()
+        else:
+            return obj
     
     def _channel_info_model_to_dict(self, channel_model: ChannelInfoModel) -> Dict[str, Any]:
         """
