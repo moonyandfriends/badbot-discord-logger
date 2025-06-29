@@ -10,6 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    supervisor \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -26,6 +27,9 @@ COPY . .
 # Create logs directory
 RUN mkdir -p /app/logs
 
+# Copy supervisord configuration
+COPY supervisord.conf /app/supervisord.conf
+
 # Health check for Railway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)" || exit 1
@@ -34,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8080
 
 # Set default command
-CMD ["python", "main.py"] 
+CMD ["supervisord", "-c", "/app/supervisord.conf"] 
