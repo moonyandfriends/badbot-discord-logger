@@ -1,12 +1,10 @@
 discord.py==2.3.2
-supabase==2.0.0
 python-dotenv==1.0.0
+supabase==2.0.0
+loguru==0.7.2
 asyncpg==0.29.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
-loguru==0.7.2
 aiohttp==3.9.0
 python-dateutil==2.8.2
-tenacity==8.2.3
-fastapi
-uvicorn 
+tenacity==8.2.3 
