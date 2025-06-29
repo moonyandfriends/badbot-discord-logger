@@ -11,6 +11,9 @@ import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 from collections import deque
+import gc
+from aiohttp import web
+import aiohttp
 
 import discord
 from discord.ext import commands, tasks
@@ -55,9 +58,11 @@ class DiscordLogger(commands.Bot):
         self.message_queue: deque = deque(maxlen=self.config.max_queue_size)
         self.action_queue: deque = deque(maxlen=self.config.max_queue_size)
         
-        # Tracking sets for processed items
+        # Tracking sets for processed items with size limits
         self.processed_messages: Set[str] = set()
         self.processed_actions: Set[str] = set()
+        self._max_tracked_items = 100000  # Maximum items to track
+        self._cleanup_threshold = 50000   # Clean up to this many items
         
         # Backfill tracking
         self.backfill_in_progress: Dict[str, bool] = {}
@@ -68,8 +73,18 @@ class DiscordLogger(commands.Bot):
             "messages_processed": 0,
             "actions_processed": 0,
             "errors": 0,
-            "start_time": datetime.now(timezone.utc)
+            "start_time": datetime.now(timezone.utc),
+            "uptime_seconds": 0,
+            "memory_usage_mb": 0,
+            "queue_sizes": {
+                "messages": 0,
+                "actions": 0
+            }
         }
+        
+        # Health check server
+        self.health_app = None
+        self.health_server = None
         
         # Setup logging
         self._setup_logging()
@@ -126,6 +141,12 @@ class DiscordLogger(commands.Bot):
             
             # Start background tasks
             self.process_queues.start()
+            self.cleanup_memory.start()
+            self.update_stats.start()
+            
+            # Start health check server
+            if self.config.health_check_enabled:
+                await self._start_health_server()
             
             # Store guild and channel information
             await self._store_guild_info()
@@ -278,6 +299,87 @@ class DiscordLogger(commands.Bot):
             """Handle Discord API errors."""
             logger.error(f"Discord error in event {event}: {args}")
             self.stats["errors"] += 1
+        
+        @self.event
+        async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+            """Handle voice state updates."""
+            await self._queue_action(
+                ActionType.VOICE_STATE_UPDATE,
+                guild_id=str(member.guild.id),
+                user_id=str(member.id),
+                before_data={
+                    "channel_id": str(before.channel.id) if before.channel else None,
+                    "mute": before.mute,
+                    "deaf": before.deaf,
+                    "self_mute": before.self_mute,
+                    "self_deaf": before.self_deaf
+                },
+                after_data={
+                    "channel_id": str(after.channel.id) if after.channel else None,
+                    "mute": after.mute,
+                    "deaf": after.deaf,
+                    "self_mute": after.self_mute,
+                    "self_deaf": after.self_deaf
+                }
+            )
+        
+        @self.event
+        async def on_guild_channel_create(channel: discord.abc.GuildChannel) -> None:
+            """Handle channel creation."""
+            await self._queue_action(
+                ActionType.CHANNEL_CREATE,
+                guild_id=str(channel.guild.id),
+                target_id=str(channel.id),
+                target_type="channel",
+                target_name=channel.name,
+                after_data={
+                    "channel_type": str(channel.type),
+                    "position": getattr(channel, 'position', None),
+                    "category_id": str(channel.category.id) if getattr(channel, 'category', None) else None
+                }
+            )
+            
+            # Store channel info
+            await self.db_manager.store_channel_info(channel)
+        
+        @self.event
+        async def on_guild_channel_delete(channel: discord.abc.GuildChannel) -> None:
+            """Handle channel deletion."""
+            await self._queue_action(
+                ActionType.CHANNEL_DELETE,
+                guild_id=str(channel.guild.id),
+                target_id=str(channel.id),
+                target_type="channel",
+                target_name=channel.name,
+                before_data={
+                    "channel_type": str(channel.type),
+                    "position": getattr(channel, 'position', None),
+                    "category_id": str(channel.category.id) if getattr(channel, 'category', None) else None
+                }
+            )
+        
+        @self.event
+        async def on_member_update(before: discord.Member, after: discord.Member) -> None:
+            """Handle member updates (nickname, roles, etc.)."""
+            changes = {}
+            
+            if before.nick != after.nick:
+                changes["nickname"] = {"before": before.nick, "after": after.nick}
+            
+            if before.roles != after.roles:
+                before_roles = [str(role.id) for role in before.roles]
+                after_roles = [str(role.id) for role in after.roles]
+                changes["roles"] = {"before": before_roles, "after": after_roles}
+            
+            if changes:
+                await self._queue_action(
+                    ActionType.MEMBER_UPDATE,
+                    guild_id=str(after.guild.id),
+                    user_id=str(after.id),
+                    before_data=changes.get("before", {}),
+                    after_data=changes.get("after", {}),
+                    action_data=changes
+                )
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
@@ -592,6 +694,133 @@ class DiscordLogger(commands.Bot):
         except Exception as e:
             logger.error(f"Error during backfill of channel #{channel.name}: {e}")
     
+    async def _start_health_server(self) -> None:
+        """Start the health check server."""
+        try:
+            self.health_app = web.Application()
+            
+            async def health_handler(request):
+                """Health check endpoint handler."""
+                health_data = await self.get_health_status()
+                return web.json_response(health_data)
+            
+            async def stats_handler(request):
+                """Statistics endpoint handler."""
+                stats_data = await self.get_stats()
+                return web.json_response(stats_data)
+            
+            self.health_app.router.add_get('/health', health_handler)
+            self.health_app.router.add_get('/stats', stats_handler)
+            
+            runner = web.AppRunner(self.health_app)
+            await runner.setup()
+            
+            site = web.TCPSite(runner, '0.0.0.0', self.config.health_check_port)
+            await site.start()
+            
+            logger.info(f"Health check server started on port {self.config.health_check_port}")
+            
+        except Exception as e:
+            logger.error(f"Failed to start health check server: {e}")
+    
+    @tasks.loop(minutes=10)
+    async def cleanup_memory(self) -> None:
+        """Clean up memory periodically."""
+        try:
+            # Clean up tracked message/action sets if they get too large
+            if len(self.processed_messages) > self._max_tracked_items:
+                # Keep only the most recent items (approximate)
+                messages_list = list(self.processed_messages)
+                self.processed_messages = set(messages_list[-self._cleanup_threshold:])
+                logger.info(f"Cleaned up processed messages tracking: {len(messages_list)} -> {len(self.processed_messages)}")
+            
+            if len(self.processed_actions) > self._max_tracked_items:
+                actions_list = list(self.processed_actions)
+                self.processed_actions = set(actions_list[-self._cleanup_threshold:])
+                logger.info(f"Cleaned up processed actions tracking: {len(actions_list)} -> {len(self.processed_actions)}")
+            
+            # Force garbage collection
+            collected = gc.collect()
+            if collected > 0:
+                logger.debug(f"Garbage collector freed {collected} objects")
+                
+        except Exception as e:
+            logger.error(f"Error during memory cleanup: {e}")
+    
+    @tasks.loop(seconds=60)
+    async def update_stats(self) -> None:
+        """Update bot statistics."""
+        try:
+            import psutil
+            import os
+            
+            # Update runtime stats
+            uptime = (datetime.now(timezone.utc) - self.stats["start_time"]).total_seconds()
+            self.stats["uptime_seconds"] = uptime
+            
+            # Update memory usage
+            process = psutil.Process(os.getpid())
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            self.stats["memory_usage_mb"] = round(memory_mb, 2)
+            
+            # Update queue sizes
+            self.stats["queue_sizes"]["messages"] = len(self.message_queue)
+            self.stats["queue_sizes"]["actions"] = len(self.action_queue)
+            
+        except ImportError:
+            # psutil not available, skip memory stats
+            uptime = (datetime.now(timezone.utc) - self.stats["start_time"]).total_seconds()
+            self.stats["uptime_seconds"] = uptime
+        except Exception as e:
+            logger.error(f"Error updating stats: {e}")
+    
+    async def get_health_status(self) -> Dict[str, Any]:
+        """Get comprehensive health status."""
+        try:
+            # Database health
+            db_health = await self.db_manager.health_check()
+            
+            # Bot health
+            bot_health = {
+                "bot_connected": self.is_ready(),
+                "guild_count": len(self.guilds) if self.guilds else 0,
+                "user_id": str(self.user.id) if self.user else None,
+                "latency_ms": round(self.latency * 1000, 2),
+            }
+            
+            # Queue health
+            queue_health = {
+                "message_queue_size": len(self.message_queue),
+                "action_queue_size": len(self.action_queue),
+                "message_queue_full": len(self.message_queue) >= self.config.max_queue_size * 0.9,
+                "action_queue_full": len(self.action_queue) >= self.config.max_queue_size * 0.9,
+            }
+            
+            # Overall health status
+            overall_healthy = (
+                db_health["database_connected"] and 
+                bot_health["bot_connected"] and
+                not queue_health["message_queue_full"] and
+                not queue_health["action_queue_full"]
+            )
+            
+            return {
+                "healthy": overall_healthy,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "database": db_health,
+                "bot": bot_health,
+                "queues": queue_health,
+                "stats": self.stats
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting health status: {e}")
+            return {
+                "healthy": False,
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+    
     async def get_stats(self) -> Dict[str, Any]:
         """
         Get bot statistics.
@@ -618,31 +847,51 @@ class DiscordLogger(commands.Bot):
     
     async def close(self) -> None:
         """Close the bot and cleanup resources."""
-        logger.info("Shutting down bot...")
+        logger.info("Shutting down Discord Logger Bot...")
         
-        # Cancel all backfill tasks
-        for task in self.backfill_tasks.values():
-            task.cancel()
-        
-        # Process remaining queues
         try:
-            await self._process_message_queue()
-            await self._process_action_queue()
+            # Stop background tasks
+            if hasattr(self, 'process_queues') and not self.process_queues.is_cancelled():
+                self.process_queues.cancel()
+            
+            if hasattr(self, 'cleanup_memory') and not self.cleanup_memory.is_cancelled():
+                self.cleanup_memory.cancel()
+            
+            if hasattr(self, 'update_stats') and not self.update_stats.is_cancelled():
+                self.update_stats.cancel()
+            
+            # Process remaining items in queues
+            if self.message_queue:
+                logger.info(f"Processing {len(self.message_queue)} remaining messages...")
+                await self._process_message_queue()
+            
+            if self.action_queue:
+                logger.info(f"Processing {len(self.action_queue)} remaining actions...")
+                await self._process_action_queue()
+            
+            # Cancel any running backfill tasks
+            for task in self.backfill_tasks.values():
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            
+            # Close database connection
+            if self.db_manager:
+                await self.db_manager.close()
+            
+            # Stop health server
+            if self.health_server:
+                await self.health_server.cleanup()
+            
+            logger.info("Shutdown complete")
+            
         except Exception as e:
-            logger.error(f"Error processing final queues: {e}")
-        
-        # Stop background tasks
-        if hasattr(self, 'process_queues'):
-            self.process_queues.cancel()
-        
-        # Close database connection
-        if self.db_manager:
-            await self.db_manager.close()
-        
-        # Close Discord connection
-        await super().close()
-        
-        logger.info("Bot shutdown complete")
+            logger.error(f"Error during shutdown: {e}")
+        finally:
+            await super().close()
 
 
 async def main() -> None:

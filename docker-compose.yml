@@ -1,0 +1,190 @@
+version: '3.8'
+
+services:
+  discord-logger:
+    build: .
+    container_name: discord-logger-bot
+    restart: unless-stopped
+    environment:
+      # Discord Configuration
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
+      
+      # Supabase Configuration
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      
+      # Logging Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_DEBUG=${ENABLE_DEBUG:-false}
+      - LOG_FILE_PATH=/app/logs/discord_logger.log
+      
+      # Performance Configuration
+      - BATCH_SIZE=${BATCH_SIZE:-50}
+      - MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE:-10000}
+      - FLUSH_INTERVAL=${FLUSH_INTERVAL:-30}
+      
+      # Backfill Configuration
+      - BACKFILL_ENABLED=${BACKFILL_ENABLED:-true}
+      - BACKFILL_CHUNK_SIZE=${BACKFILL_CHUNK_SIZE:-100}
+      - BACKFILL_DELAY_SECONDS=${BACKFILL_DELAY_SECONDS:-1.0}
+      - BACKFILL_MAX_AGE_DAYS=${BACKFILL_MAX_AGE_DAYS}
+      
+      # Filtering Configuration
+      - ALLOWED_GUILDS=${ALLOWED_GUILDS}
+      - IGNORED_GUILDS=${IGNORED_GUILDS}
+      - ALLOWED_CHANNELS=${ALLOWED_CHANNELS}
+      - IGNORED_CHANNELS=${IGNORED_CHANNELS}
+      
+      # Message Processing Configuration
+      - PROCESS_BOT_MESSAGES=${PROCESS_BOT_MESSAGES:-true}
+      - PROCESS_SYSTEM_MESSAGES=${PROCESS_SYSTEM_MESSAGES:-true}
+      - PROCESS_DM_MESSAGES=${PROCESS_DM_MESSAGES:-false}
+      
+      # Health Check Configuration
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      - HEALTH_CHECK_PORT=8080
+      
+      # Metrics Configuration
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9090
+    volumes:
+      - discord-logs:/app/logs
+      - discord-data:/app/data
+    ports:
+      - "8080:8080"  # Health check endpoint
+      - "9090:9090"  # Metrics endpoint (if enabled)
+    networks:
+      - discord-network
+    depends_on:
+      - prometheus
+      - grafana
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: discord-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - discord-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: discord-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - discord-network
+    depends_on:
+      - prometheus
+
+  # Log aggregation with Loki
+  loki:
+    image: grafana/loki:latest
+    container_name: discord-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/local-config.yaml
+      - loki-data:/tmp/loki
+    networks:
+      - discord-network
+
+  # Log shipping with Promtail
+  promtail:
+    image: grafana/promtail:latest
+    container_name: discord-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml
+      - discord-logs:/var/log/discord:ro
+      - /var/log:/var/log:ro
+    networks:
+      - discord-network
+    depends_on:
+      - loki
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: discord-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - discord-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: discord-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./monitoring/nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    networks:
+      - discord-network
+    depends_on:
+      - discord-logger
+      - grafana
+      - prometheus
+
+volumes:
+  discord-logs:
+    driver: local
+  discord-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  discord-network:
+    driver: bridge 

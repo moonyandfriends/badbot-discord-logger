@@ -8,9 +8,11 @@ and retry logic.
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Union, Tuple, Callable
 from contextlib import asynccontextmanager
+from functools import lru_cache
+import json
 
 import discord
 from supabase import create_client, Client
@@ -47,6 +49,11 @@ class NonRetryableError(DatabaseError):
     pass
 
 
+class ConnectionError(DatabaseError):
+    """Exception for connection-related errors."""
+    pass
+
+
 class SupabaseManager:
     """
     Manages all interactions with the Supabase database.
@@ -67,11 +74,14 @@ class SupabaseManager:
         self.table_names = config.get_database_table_names()
         self._connection_lock = asyncio.Lock()
         self._initialized = False
+        self._stats_cache: Dict[str, Any] = {}
+        self._cache_ttl = 300  # 5 minutes cache TTL
+        self._last_cache_update = datetime.now(timezone.utc)
         
     async def initialize(self) -> None:
         """Initialize the Supabase client and verify connection."""
         async with self._connection_lock:
-            if self._initialized:
+            if self._initialized and self.client is not None:
                 return
                 
             try:
@@ -87,7 +97,13 @@ class SupabaseManager:
                 
             except Exception as e:
                 logger.error(f"Failed to initialize Supabase client: {e}")
-                raise DatabaseError(f"Database initialization failed: {e}") from e
+                raise ConnectionError(f"Database initialization failed: {e}") from e
+    
+    def _ensure_client(self) -> Client:
+        """Ensure client is initialized and return it."""
+        if not self.client:
+            raise ConnectionError("Database client not initialized. Call initialize() first.")
+        return self.client
     
     @retry(
         stop=stop_after_attempt(3),
@@ -97,11 +113,10 @@ class SupabaseManager:
     async def _test_connection(self) -> None:
         """Test the database connection."""
         try:
-            if not self.client:
-                raise NonRetryableError("Client not initialized")
-                
+            client = self._ensure_client()
+            
             # Try to query the checkpoints table (should exist)
-            result = self.client.table(self.table_names["checkpoints"]).select("*").limit(1).execute()
+            result = client.table(self.table_names["checkpoints"]).select("*").limit(1).execute()
             logger.debug("Database connection test successful")
         except Exception as e:
             logger.error(f"Database connection test failed: {e}")
@@ -118,7 +133,7 @@ class SupabaseManager:
     )
     async def _execute_with_retry(
         self, 
-        operation: callable, 
+        operation: Callable[..., Any], 
         operation_name: str,
         *args,
         **kwargs
@@ -142,8 +157,9 @@ class SupabaseManager:
             if not self.client:
                 await self.initialize()
                 
+            client = self._ensure_client()
             logger.debug(f"Executing {operation_name}")
-            result = operation(*args, **kwargs)
+            result = operation(client, *args, **kwargs)
             
             if hasattr(result, 'execute'):
                 result = result.execute()
@@ -175,10 +191,11 @@ class SupabaseManager:
         try:
             message_model = self._convert_discord_message(message, is_backfilled)
             
-            operation = lambda: self.client.table(self.table_names["messages"]).upsert(
-                message_model.model_dump(),
-                on_conflict="message_id"
-            )
+            def operation(client: Client) -> Any:
+                return client.table(self.table_names["messages"]).upsert(
+                    message_model.model_dump(),
+                    on_conflict="message_id"
+                )
             
             await self._execute_with_retry(
                 operation, 
@@ -226,10 +243,11 @@ class SupabaseManager:
             if not message_models:
                 return 0
             
-            operation = lambda: self.client.table(self.table_names["messages"]).upsert(
-                message_models,
-                on_conflict="message_id"
-            )
+            def operation(client: Client) -> Any:
+                return client.table(self.table_names["messages"]).upsert(
+                    message_models,
+                    on_conflict="message_id"
+                )
             
             await self._execute_with_retry(
                 operation,
@@ -299,9 +317,10 @@ class SupabaseManager:
                 is_backfilled=is_backfilled
             )
             
-            operation = lambda: self.client.table(self.table_names["actions"]).insert(
-                action_model.model_dump()
-            )
+            def operation(client: Client) -> Any:
+                return client.table(self.table_names["actions"]).insert(
+                    action_model.model_dump()
+                )
             
             await self._execute_with_retry(
                 operation,
@@ -333,23 +352,26 @@ class SupabaseManager:
             CheckpointModel if found, None otherwise
         """
         try:
-            query = self.client.table(self.table_names["checkpoints"]).select("*")
-            
-            # Build query conditions
-            query = query.eq("checkpoint_type", checkpoint_type)
-            
-            if guild_id is not None:
-                query = query.eq("guild_id", guild_id)
-            else:
-                query = query.is_("guild_id", "null")
+            def operation(client: Client) -> Any:
+                query = client.table(self.table_names["checkpoints"]).select("*")
                 
-            if channel_id is not None:
-                query = query.eq("channel_id", channel_id)
-            else:
-                query = query.is_("channel_id", "null")
+                # Build query conditions
+                query = query.eq("checkpoint_type", checkpoint_type)
+                
+                if guild_id is not None:
+                    query = query.eq("guild_id", guild_id)
+                else:
+                    query = query.is_("guild_id", "null")
+                    
+                if channel_id is not None:
+                    query = query.eq("channel_id", channel_id)
+                else:
+                    query = query.is_("channel_id", "null")
+                
+                return query.limit(1)
             
             result = await self._execute_with_retry(
-                lambda: query.limit(1),
+                operation,
                 f"get_checkpoint_{checkpoint_type}"
             )
             
@@ -395,7 +417,9 @@ class SupabaseManager:
             
             if existing:
                 # Update existing checkpoint
-                update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+                update_data: Dict[str, Union[str, int, bool]] = {
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
                 
                 if last_processed_id is not None:
                     update_data["last_processed_id"] = last_processed_id
@@ -406,10 +430,9 @@ class SupabaseManager:
                 if backfill_in_progress is not None:
                     update_data["backfill_in_progress"] = backfill_in_progress
                 
-                query = self.client.table(self.table_names["checkpoints"]).update(update_data)
-                query = query.eq("checkpoint_id", existing.checkpoint_id)
-                
-                operation = lambda: query
+                def operation(client: Client) -> Any:
+                    query = client.table(self.table_names["checkpoints"]).update(update_data)
+                    return query.eq("checkpoint_id", existing.checkpoint_id)
                 
             else:
                 # Create new checkpoint
@@ -421,13 +444,15 @@ class SupabaseManager:
                     last_processed_id=last_processed_id,
                     last_processed_timestamp=last_processed_timestamp,
                     total_processed=total_processed or 0,
+                    last_backfill_completed=None,  # Set explicitly
                     backfill_in_progress=backfill_in_progress or False
                 )
                 
-                operation = lambda: self.client.table(self.table_names["checkpoints"]).upsert(
-                    checkpoint_model.model_dump(),
-                    on_conflict="checkpoint_id"
-                )
+                def operation(client: Client) -> Any:
+                    return client.table(self.table_names["checkpoints"]).upsert(
+                        checkpoint_model.model_dump(),
+                        on_conflict="checkpoint_id"
+                    )
             
             await self._execute_with_retry(
                 operation,
@@ -457,16 +482,17 @@ class SupabaseManager:
             Message ID if found, None otherwise
         """
         try:
-            query = self.client.table(self.table_names["messages"]).select("message_id")
-            query = query.eq("channel_id", channel_id)
-            
-            if guild_id:
-                query = query.eq("guild_id", guild_id)
-            
-            query = query.order("created_at", desc=True).limit(1)
+            def operation(client: Client) -> Any:
+                query = client.table(self.table_names["messages"]).select("message_id")
+                query = query.eq("channel_id", channel_id)
+                
+                if guild_id:
+                    query = query.eq("guild_id", guild_id)
+                
+                return query.order("created_at", desc=True).limit(1)
             
             result = await self._execute_with_retry(
-                lambda: query,
+                operation,
                 f"get_last_message_id_{channel_id}"
             )
             
@@ -493,18 +519,18 @@ class SupabaseManager:
                 guild_id=str(guild.id),
                 name=guild.name,
                 description=guild.description,
-                owner_id=str(guild.owner_id),
-                member_count=guild.member_count,
+                owner_id=str(guild.owner_id) if guild.owner_id else "0",
+                member_count=guild.member_count or 0,
                 created_at=guild.created_at,
                 icon_url=str(guild.icon.url) if guild.icon else None,
                 banner_url=str(guild.banner.url) if guild.banner else None
             )
             
-            # Use upsert to insert or update
-            operation = lambda: self.client.table(self.table_names["guilds"]).upsert(
-                guild_model.model_dump(),
-                on_conflict="guild_id"
-            )
+            def operation(client: Client) -> Any:
+                return client.table(self.table_names["guilds"]).upsert(
+                    guild_model.model_dump(),
+                    on_conflict="guild_id"
+                )
             
             await self._execute_with_retry(
                 operation,
@@ -536,14 +562,14 @@ class SupabaseManager:
                 channel_type=str(channel.type),
                 topic=getattr(channel, 'topic', None),
                 position=getattr(channel, 'position', None),
-                category_id=str(channel.category.id) if getattr(channel, 'category', None) else None
+                category_id=str(channel.category.id) if getattr(channel, 'category', None) and channel.category else None
             )
             
-            # Use upsert to insert or update
-            operation = lambda: self.client.table(self.table_names["channels"]).upsert(
-                channel_model.model_dump(),
-                on_conflict="channel_id"
-            )
+            def operation(client: Client) -> Any:
+                return client.table(self.table_names["channels"]).upsert(
+                    channel_model.model_dump(),
+                    on_conflict="channel_id"
+                )
             
             await self._execute_with_retry(
                 operation,
@@ -586,21 +612,25 @@ class SupabaseManager:
         # Handle embeds
         embeds = []
         for embed in message.embeds:
-            embed_dict = {
-                "title": embed.title,
-                "description": embed.description,
-                "url": embed.url,
-                "color": embed.color.value if embed.color else None,
-                "timestamp": embed.timestamp.isoformat() if embed.timestamp else None,
-                "footer": embed.footer.to_dict() if embed.footer else None,
-                "image": embed.image.to_dict() if embed.image else None,
-                "thumbnail": embed.thumbnail.to_dict() if embed.thumbnail else None,
-                "video": embed.video.to_dict() if embed.video else None,
-                "provider": embed.provider.to_dict() if embed.provider else None,
-                "author": embed.author.to_dict() if embed.author else None,
-                "fields": [field.to_dict() for field in embed.fields]
-            }
-            embeds.append(embed_dict)
+            try:
+                embed_dict = {
+                    "title": embed.title,
+                    "description": embed.description,
+                    "url": embed.url,
+                    "color": embed.color.value if embed.color else None,
+                    "timestamp": embed.timestamp.isoformat() if embed.timestamp else None,
+                    "footer": dict(embed.footer) if embed.footer else None,
+                    "image": dict(embed.image) if embed.image else None,
+                    "thumbnail": dict(embed.thumbnail) if embed.thumbnail else None,
+                    "video": dict(embed.video) if embed.video else None,
+                    "provider": dict(embed.provider) if embed.provider else None,
+                    "author": dict(embed.author) if embed.author else None,
+                    "fields": [dict(field) for field in embed.fields]
+                }
+                embeds.append(embed_dict)
+            except Exception as e:
+                logger.warning(f"Failed to convert embed: {e}")
+                continue
         
         return MessageModel(
             message_id=str(message.id),
@@ -632,42 +662,135 @@ class SupabaseManager:
             is_backfilled=is_backfilled
         )
     
+    @lru_cache(maxsize=128)
+    def _get_cached_stats_key(self, stat_type: str) -> str:
+        """Generate cache key for statistics."""
+        return f"stats_{stat_type}_{int(datetime.now(timezone.utc).timestamp() // self._cache_ttl)}"
+    
     async def get_statistics(self) -> Dict[str, Any]:
         """
-        Get database statistics.
+        Get database statistics with caching.
         
         Returns:
             Dictionary containing database statistics
         """
         try:
+            # Check cache validity
+            now = datetime.now(timezone.utc)
+            if (now - self._last_cache_update).total_seconds() < self._cache_ttl and self._stats_cache:
+                return self._stats_cache
+            
             stats = {}
             
             # Get message count
+            def get_message_count(client: Client) -> Any:
+                return client.table(self.table_names["messages"]).select("id", count="exact")
+            
             result = await self._execute_with_retry(
-                lambda: self.client.table(self.table_names["messages"]).select("id", count="exact"),
+                get_message_count,
                 "get_message_count"
             )
             stats["total_messages"] = result.count
             
             # Get action count
+            def get_action_count(client: Client) -> Any:
+                return client.table(self.table_names["actions"]).select("id", count="exact")
+            
             result = await self._execute_with_retry(
-                lambda: self.client.table(self.table_names["actions"]).select("id", count="exact"),
+                get_action_count,
                 "get_action_count"
             )
             stats["total_actions"] = result.count
             
             # Get guild count
+            def get_guild_count(client: Client) -> Any:
+                return client.table(self.table_names["guilds"]).select("id", count="exact")
+            
             result = await self._execute_with_retry(
-                lambda: self.client.table(self.table_names["guilds"]).select("id", count="exact"),
+                get_guild_count,
                 "get_guild_count"
             )
             stats["total_guilds"] = result.count
+            
+            # Update cache
+            self._stats_cache = stats
+            self._last_cache_update = now
             
             return stats
             
         except Exception as e:
             logger.error(f"Failed to get database statistics: {e}")
-            return {}
+            return self._stats_cache if self._stats_cache else {}
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Perform a health check on the database.
+        
+        Returns:
+            Dictionary containing health check results
+        """
+        health_status = {
+            "database_connected": False,
+            "tables_accessible": False,
+            "last_message_timestamp": None,
+            "error": None
+        }
+        
+        try:
+            # Test basic connection
+            await self._test_connection()
+            health_status["database_connected"] = True
+            
+            # Test table access
+            def test_tables(client: Client) -> Any:
+                return client.table(self.table_names["messages"]).select("created_at").order("created_at", desc=True).limit(1)
+            
+            result = await self._execute_with_retry(test_tables, "health_check_tables")
+            health_status["tables_accessible"] = True
+            
+            if result.data:
+                health_status["last_message_timestamp"] = result.data[0]["created_at"]
+            
+        except Exception as e:
+            health_status["error"] = str(e)
+            logger.error(f"Health check failed: {e}")
+        
+        return health_status
+    
+    async def cleanup_old_data(self, days_to_keep: int = 90) -> Dict[str, int]:
+        """
+        Clean up old data from the database.
+        
+        Args:
+            days_to_keep: Number of days of data to keep
+            
+        Returns:
+            Dictionary with cleanup results
+        """
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
+        cleanup_results = {"messages_deleted": 0, "actions_deleted": 0}
+        
+        try:
+            # Cleanup old messages
+            def cleanup_messages(client: Client) -> Any:
+                return client.table(self.table_names["messages"]).delete().lt("created_at", cutoff_date.isoformat())
+            
+            result = await self._execute_with_retry(cleanup_messages, "cleanup_old_messages")
+            cleanup_results["messages_deleted"] = len(result.data) if result.data else 0
+            
+            # Cleanup old actions
+            def cleanup_actions(client: Client) -> Any:
+                return client.table(self.table_names["actions"]).delete().lt("occurred_at", cutoff_date.isoformat())
+            
+            result = await self._execute_with_retry(cleanup_actions, "cleanup_old_actions")
+            cleanup_results["actions_deleted"] = len(result.data) if result.data else 0
+            
+            logger.info(f"Cleaned up {cleanup_results['messages_deleted']} messages and {cleanup_results['actions_deleted']} actions")
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup old data: {e}")
+        
+        return cleanup_results
     
     async def close(self) -> None:
         """Close the database connection."""
