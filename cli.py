@@ -83,8 +83,14 @@ def setup(token: str, supabase_url: str, supabase_key: str, env_file: str):
         console.print("[red]Error: Discord token appears to be invalid (too short)[/red]")
         return
     
-    if not supabase_url.startswith("https://") or not supabase_url.endswith(".supabase.co"):
-        console.print("[red]Error: Supabase URL must be in format: https://xxx.supabase.co[/red]")
+    if not supabase_url.startswith("https://"):
+        console.print("[red]Error: Supabase URL must use HTTPS[/red]")
+        return
+    
+    # Basic domain validation
+    domain = supabase_url[8:]  # Remove "https://"
+    if not domain or '.' not in domain or domain.endswith('.') or domain.startswith('.'):
+        console.print("[red]Error: Supabase URL must be a valid HTTPS URL with a proper domain[/red]")
         return
     
     # Create environment file

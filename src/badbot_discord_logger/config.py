@@ -109,8 +109,16 @@ class Config(BaseSettings):
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:
         """Validate Supabase URL format."""
-        if not v.startswith("https://") or not v.endswith(".supabase.co"):
-            raise ValueError("Supabase URL must be in format: https://xxx.supabase.co")
+        if not v.startswith("https://"):
+            raise ValueError("Supabase URL must use HTTPS")
+        
+        # Remove the https:// prefix for domain validation
+        domain = v[8:]  # Remove "https://"
+        
+        # Basic domain validation
+        if not domain or '.' not in domain or domain.endswith('.') or domain.startswith('.'):
+            raise ValueError("Supabase URL must be a valid HTTPS URL with a proper domain")
+        
         return v
     
     @field_validator("supabase_key")

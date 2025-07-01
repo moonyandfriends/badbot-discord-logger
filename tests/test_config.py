@@ -92,12 +92,12 @@ class TestConfig:
         config = Config(**valid_config)
         assert config.supabase_url is not None
         
-        # Test invalid URL (wrong format)
-        with pytest.raises(ValidationError, match="Supabase URL must be in format"):
-            Config(**{**base_config, "supabase_url": "https://invalid-url.com"})
+        # Test invalid URL (invalid domain)
+        with pytest.raises(ValidationError, match="Supabase URL must be a valid HTTPS URL with a proper domain"):
+            Config(**{**base_config, "supabase_url": "https://invalid."})
         
         # Test invalid URL (no https)
-        with pytest.raises(ValidationError, match="Supabase URL must be in format"):
+        with pytest.raises(ValidationError, match="Supabase URL must use HTTPS"):
             Config(**{**base_config, "supabase_url": "http://test-project.supabase.co"})
     
     def test_batch_size_validation(self):
