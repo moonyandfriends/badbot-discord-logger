@@ -1,4 +1,4 @@
--- Database schema for BadBot Discord Logger
+`-- Database schema for BadBot Discord Logger
 -- This file contains all the table definitions needed for the Discord logging system
 
 -- Enable UUID extension
@@ -234,7 +234,7 @@ CREATE OR REPLACE TRIGGER update_discord_channels_updated_at
 -- Create some useful views for common queries
 
 -- View for recent messages with author information
-CREATE OR REPLACE VIEW recent_messages AS
+CREATE OR REPLACE VIEW discord_recent_messages AS
 SELECT 
     m.message_id,
     m.content,
@@ -249,7 +249,7 @@ LEFT JOIN discord_channels c ON m.channel_id = c.channel_id
 ORDER BY m.created_at DESC;
 
 -- View for message statistics by channel
-CREATE OR REPLACE VIEW channel_message_stats AS
+CREATE OR REPLACE VIEW discord_channel_message_stats AS
 SELECT 
     c.channel_id,
     c.name as channel_name,
@@ -264,7 +264,7 @@ LEFT JOIN discord_guilds g ON c.guild_id = g.guild_id
 GROUP BY c.channel_id, c.name, g.name;
 
 -- View for action statistics
-CREATE OR REPLACE VIEW action_stats AS
+CREATE OR REPLACE VIEW discord_action_stats AS
 SELECT 
     action_type,
     COUNT(*) as count,
@@ -283,4 +283,4 @@ COMMENT ON TABLE discord_channels IS 'Stores Discord channel information';
 
 COMMENT ON COLUMN discord_messages.is_backfilled IS 'Indicates if this message was added during backfill process';
 COMMENT ON COLUMN discord_actions.is_backfilled IS 'Indicates if this action was added during backfill process';
-COMMENT ON COLUMN discord_checkpoints.backfill_in_progress IS 'Indicates if backfill is currently running for this checkpoint'; 
+COMMENT ON COLUMN discord_checkpoints.backfill_in_progress IS 'Indicates if backfill is currently running for this checkpoint'; `

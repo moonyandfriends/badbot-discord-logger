@@ -8,8 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Self-hosted Supabase support**: Now supports custom self-hosted Supabase domains (not just .supabase.co)
-- **Railway deployment optimization**: Configured for one-click Railway deployment
+
+### Changed
+- Database views now use `discord_` prefix for consistency with tables
+  - `recent_messages` → `discord_recent_messages`
+  - `channel_message_stats` → `discord_channel_message_stats`
+  - `action_stats` → `discord_action_stats`
 - **Simplified Docker configuration**: Lightweight single-stage Dockerfile for Railway
 - **Railway-specific environment template**: `env.railway` file with Railway environment variables
 - **Railway CLI commands**: Added Railway-specific deployment and monitoring commands
