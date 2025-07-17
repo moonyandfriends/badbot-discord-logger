@@ -39,6 +39,9 @@ class ActionType(str, Enum):
     EMOJI_CREATE = "emoji_create"
     EMOJI_DELETE = "emoji_delete"
     EMOJI_UPDATE = "emoji_update"
+    WEBHOOK_CREATE = "webhook_create"
+    WEBHOOK_UPDATE = "webhook_update"
+    WEBHOOK_DELETE = "webhook_delete"
 
 
 class MessageType(str, Enum):

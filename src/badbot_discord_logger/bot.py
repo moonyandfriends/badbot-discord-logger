@@ -381,6 +381,27 @@ class DiscordLogger(commands.Bot):
                     after_data=changes.get("after", {}),
                     action_data=changes
                 )
+        
+        @self.event
+        async def on_webhooks_update(channel: discord.abc.GuildChannel) -> None:
+            """Handle webhook updates (create, update, delete)."""
+            if not self.config.should_process_guild(str(channel.guild.id)):
+                return
+            
+            if not self.config.should_process_channel(str(channel.id)):
+                return
+            
+            await self._queue_action(
+                ActionType.WEBHOOK_UPDATE,
+                guild_id=str(channel.guild.id),
+                channel_id=str(channel.id),
+                target_type="channel",
+                target_name=channel.name,
+                action_data={
+                    "channel_type": str(channel.type),
+                    "webhook_event": "update"
+                }
+            )
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""

@@ -276,7 +276,7 @@ ORDER BY count DESC;
 
 -- Comments for documentation
 COMMENT ON TABLE discord_messages IS 'Stores all Discord messages with full metadata and content';
-COMMENT ON TABLE discord_actions IS 'Stores Discord actions and events like member joins, message edits, etc.';
+COMMENT ON TABLE discord_actions IS 'Stores Discord actions and events like member joins, message edits, webhook updates, etc.';
 COMMENT ON TABLE discord_checkpoints IS 'Tracks processing progress for backfill and real-time operations';
 COMMENT ON TABLE discord_guilds IS 'Stores Discord guild (server) information';
 COMMENT ON TABLE discord_channels IS 'Stores Discord channel information';
