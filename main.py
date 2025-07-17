@@ -20,21 +20,6 @@ from badbot_discord_logger.config import load_config
 async def main() -> None:
     """Main entry point for the Discord Logger Bot."""
     try:
-        # Run webhook backfill if needed (one-time operation)
-        import os
-        if os.getenv("RUN_WEBHOOK_BACKFILL", "").lower() == "true":
-            print("Running webhook backfill script...")
-            try:
-                import subprocess
-                result = subprocess.run([sys.executable, "backfill_webhooks.py"], 
-                                      capture_output=True, text=True)
-                print(f"Backfill output: {result.stdout}")
-                if result.stderr:
-                    print(f"Backfill errors: {result.stderr}")
-                print("Webhook backfill completed")
-            except Exception as e:
-                print(f"Error running backfill: {e}")
-        
         # Load configuration
         print("Loading configuration...")
         config = load_config()
