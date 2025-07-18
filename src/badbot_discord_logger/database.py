@@ -691,6 +691,7 @@ class SupabaseManager:
             reference_message_id=str(message.reference.message_id) if message.reference else None,
             application_id=str(getattr(message, 'application_id', None)) if hasattr(message, 'application_id') else None,
             interaction_type=str(message.interaction.type) if message.interaction else None,
+            webhook_id=str(message.webhook_id) if getattr(message, 'webhook_id', None) else None,
             is_backfilled=is_backfilled
         )
     

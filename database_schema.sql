@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS discord_messages (
     application_id TEXT,
     interaction_type TEXT,
     
+    -- Webhook information
+    webhook_id TEXT,
+    
     -- Metadata
     logged_at TIMESTAMPTZ DEFAULT NOW(),
     is_backfilled BOOLEAN DEFAULT FALSE,
@@ -59,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_discord_messages_author_id ON discord_messages (a
 CREATE INDEX IF NOT EXISTS idx_discord_messages_created_at ON discord_messages (created_at);
 CREATE INDEX IF NOT EXISTS idx_discord_messages_logged_at ON discord_messages (logged_at);
 CREATE INDEX IF NOT EXISTS idx_discord_messages_is_backfilled ON discord_messages (is_backfilled);
+CREATE INDEX IF NOT EXISTS idx_discord_messages_webhook_id ON discord_messages (webhook_id);
 
 -- Table for storing Discord actions/events
 CREATE TABLE IF NOT EXISTS discord_actions (

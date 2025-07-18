@@ -166,6 +166,9 @@ class MessageModel(BaseModel):
     application_id: Optional[str] = Field(None, description="Application ID for slash commands")
     interaction_type: Optional[str] = Field(None, description="Type of interaction")
     
+    # Webhook information
+    webhook_id: Optional[str] = Field(None, description="Webhook ID if message was sent by a webhook")
+    
     # Metadata
     logged_at: datetime = Field(default_factory=datetime.utcnow, description="When message was logged to database")
     is_backfilled: bool = Field(False, description="Whether this message was backfilled")
